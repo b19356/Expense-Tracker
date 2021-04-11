@@ -1,0 +1,949 @@
+---
+title: "Expense Tracker"
+resource_files:
+- df_toy_expenses.rds
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    css: styles.css
+    orientation: columns
+    vertical_layout: scroll
+---
+
+```{r setup, include=FALSE}
+
+library(flexdashboard)
+library(shiny)
+library(lubridate)
+library(shinyWidgets)
+library(tidyverse)
+# library(aws.s3)
+library(kableExtra)
+library(broom)
+library(DT)
+library(janitor)
+library(shinyjs)
+
+```
+
+```{r, create and save blank df if necessary}
+
+# If no data has been saved, creates an empty data frame for app to run
+
+# Blank_df <- tibble("Date" = character(),
+#                  "Expense.Category" = character(),
+#                  "Amount" = numeric(),
+#                  "Description" = character())
+
+# Local version save:
+
+# write_rds(Blank_df, "Blank_df.rds")
+
+# AWS S3 version save:
+
+# s3saveRDS(Blank_df,
+#           object = "df_Blank.rds",
+#           bucket = 'your bucket',
+#           key = 'your key',
+#           secret = 'your secret access',
+#           region = 'your region')
+
+```
+
+```{r, define expense types}
+
+expense_categories <- c("","Rent", "School & Tuition", "Food", "Car & Transportation", "Medical", "Personal Spending", "Recreation & Entertainment", "Miscellaneous")
+
+expense_categories <- sort(expense_categories)
+
+``` 
+
+```{r, define ggplot2 theme}
+
+my_theme <- function (base_size = 11, base_family = "PT Sans") {
+    theme_classic() %+replace% 
+    theme(
+      text = element_text(family = "PT Sans", color = "#737373"),
+      panel.background = element_rect(fill = "#F1F1F1", color = NA),
+      plot.background = element_rect(fill = "#F1F1F1", color = NA),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "#737373"),
+      axis.ticks = element_line(color = "#737373"),
+      axis.text = element_text(color = "#737373", size = 15),
+      axis.title = element_blank(),
+      plot.title = element_text(size = 20, face = "bold"),
+      legend.background = element_rect(fill = "#F1F1F1", color = NA),
+      plot.margin = unit(c(0.5, 0.5, 0.5, 0.5), "cm")
+      )
+}
+
+```
+
+# Submit Expenses
+
+##  Inputs
+
+### {.no-title}
+
+```{r, expense inputs}
+
+wellPanel(dateInput(inputId = "my_date",
+          label = "Select Date of Expense", 
+          min = "2020-08-01",
+          max = Sys.Date(),
+          value = NULL))
+
+wellPanel(selectInput(inputId = "my_expense",
+                      label = "Select Expense Type",
+                      choices = expense_categories,
+                      selected = ""))
+
+wellPanel(shinyWidgets::numericInputIcon("my_amount", 
+                                   label = "Enter Amount",
+                                   value = 0, 
+                                   step= 0.01, 
+                                   min= 0, 
+                                   max= 50000, 
+                                   icon = list(icon("dollar"),NULL)))
+
+wellPanel(textInput(inputId = "description",
+                    label = "Enter Description"))
+
+
+
+
+```
+
+## Verify
+
+### {.no-title}
+
+```{r, error notifications for expense inputs}
+
+wellPanel(verbatimTextOutput(outputId="error"))
+
+```
+
+```{r, action button for submitting expenses}
+
+wellPanel(tags$div(actionButton(inputId = "submit",
+                             label = "Submit")))
+
+```
+
+```{r, reset after submit}
+
+observeEvent(input$submit, {
+  
+  updateDateInput(session, inputId = 'my_date',
+                    value = Sys.Date())
+  
+  updateSelectInput(session, inputId = 'my_expense',
+                      selected = "")
+  
+  updateNumericInputIcon(session, inputId = 'my_amount',
+                           value = 0)
+  
+   updateTextInput(session, inputId = "description",
+                    value = "")
+  
+}
+)
+
+```
+
+
+```{r, placeholder for input errors}
+
+useShinyjs(rmd = TRUE) # allows for message to disappear after delay
+
+problem <- reactiveVal()
+
+ observeEvent(input$submit, {
+
+   req(input$my_amount)
+
+   if (input$my_expense == "" | input$my_amount == 0) {
+     problem("Please input an expense that is more than $0.")
+   }
+ })
+
+ output$error <- renderText({
+    problem()
+  })
+
+ observeEvent(input$submit, {
+    delay(ms = 3000, problem(NULL))
+  })
+
+
+```
+
+```{r, submission success notification}
+
+wellPanel(verbatimTextOutput(outputId = "submit_ok"))
+
+```
+
+```{r, placeholder for success notification}
+
+useShinyjs(rmd = TRUE) # allows for message to disappear after delay
+
+Message <- reactiveVal()
+
+ observeEvent(input$submit, {
+
+   req(input$my_amount)
+
+   if (input$my_expense !="" & input$my_amount > 0) {
+   Message("Submission successful!  Submit another expense or go to 'Save Expenses'")
+     
+   }
+
+ })
+
+ output$submit_ok <- renderText({
+    Message()
+  })
+
+ observeEvent(input$submit, {
+    delay(ms = 4000, Message(NULL))
+  })
+ 
+ 
+
+```
+
+# Save Expenses
+
+## Column
+
+```{r, set up reactive df}
+
+#Set up empty df
+df <- tibble("Date" = character(),
+                    "Expense Category" = character(),
+                    "Amount" = numeric(),
+             "Description" = character())
+
+#Make entire df object reactive so new lines can be written
+
+ReactiveDf <- reactiveVal(value = df)
+
+
+# add inputs as new lines to df
+observeEvent(input$submit, {
+
+  if (input$my_expense == "" | input$my_amount == 0 |
+      is.na(input$my_amount)) {
+
+    return(NULL) 
+    } 
+  
+  else {
+
+  # new lines are packaged togther in a df
+  new_lines <- data.frame(Date = as.character(input$my_date),
+            `Expense Category` = input$my_expense,
+            Amount = as.character(input$my_amount),
+            Description = as.character(input$description))
+  
+
+  # change df globally
+  df <<-  rbind(df, new_lines)
+
+  
+  # ensure amount is numeric
+  
+  df <<- df %>%
+  mutate("Amount" = as.numeric(Amount))
+  
+  
+  # Update reactive values
+  
+  ReactiveDf(df)
+  
+  #clear out original inputs now that they are written to df
+
+  updateSelectInput(session, inputId = "my_expense", selected = "")
+
+  updateNumericInputIcon(session, inputId = "my_amount", value = 0)
+
+  updateTextInput(session, inputId = "description", value = "")
+
+}
+}
+)
+
+```
+
+```{r, observe start over}
+
+# use if df new lines have errors
+
+observeEvent(input$start_over, {
+
+# change df globally
+df <<-  tibble("Date" = character(),
+                  "Expense.Category" = character(),
+                  "Amount" = numeric(),
+               "Description" = character())
+
+# Update reactive values to empty out df
+  ReactiveDf(df)
+
+}
+)
+
+
+```
+
+
+### {.no-title}
+
+```{r, prep data table via reactive df}
+
+tableOutput(outputId = "tracker")
+
+output$tracker <- renderTable({
+
+  #Just call the current value of the reactive df
+  # no argument because the work to update it with new lines has already
+  # been done
+  
+  ReactiveDf()
+
+}
+)
+
+```
+
+### {.no-title}
+
+```{r, set up start over and save action buttons}
+
+#putting each action button in a div to isolate hover properties
+
+wellPanel(tags$div(tags$div(actionButton(inputId = "start_over",
+                             label = "Start Over if Errors")),
+                         tags$div(actionButton(inputId = "save",
+                                          label = "Save"))))
+                         
+
+```
+
+```{r, observe save}
+
+# modal dialog for shiny contest only
+
+observeEvent(input$save, {
+  showModal(modalDialog(
+    title = "Saving Changed for Contest",
+    "Normally expenses would be saved and refreshed with historical records.  Saving, however, was turned off for the purpose of the contest.  Only toy expenses are displayed in the summaries and data table.  The file comments out code for writing along with cloud reading.  To enable cloud capabilities, the adminstrator/user must have an AWS account and S3 bucket.",
+    easyClose = TRUE
+  ))
+})
+
+
+# Local save / write
+
+# observeEvent(input$save,
+#                
+#               {write_rds(ReactiveDf(), paste0("df_",
+#                      format(Sys.time(), "%B_%d_%Y %H_%M"),
+#                      ".rds"))
+# 
+#                session$reload()
+# 
+# })
+
+# Cloud save / write
+
+# observeEvent(input$save,
+# 
+#              {s3saveRDS(df,
+#           object = paste0("df_",
+#                       format(Sys.time(), "%B_%d_%Y %H_%M"),
+#                     ".rds"),
+#           bucket = 'your bucket',
+#           key = 'your key',
+#           secret = 'your secret access',
+#           region = 'your region')
+# 
+#                session$reload()})
+
+```
+
+# Monthly Summary
+
+```{r, pull all files to create 1 df}
+
+# Read in local/toy files
+
+files <- list.files(pattern = "*.rds")
+
+Budget_df <-
+  map_df(files, ~read_rds(.x))
+
+# Read in files from cloud
+
+# my_dfs <- get_bucket(bucket = 'your bucket',
+#            key = 'your key',
+#           secret = 'your secret access',
+#           region = 'your region',
+#           prefix = 'df')
+
+# Extract (filename) and convert it to a chr vector to
+# designate rds file names for follow-up read iteration
+
+# flat_list <- map(my_dfs, ~pluck(.x, 1)) %>%
+#   flatten_chr()
+
+# read all rds files and compile to 1 df
+
+# Budget_df <- map_dfr(
+#     flat_list,
+#     ~ s3readRDS(object = .x, bucket = 'your bucket',
+#           key = 'your key',
+#           secret = 'your secret access',
+#           region = 'your region'))
+
+```
+
+## Month Inputs
+
+### {.no-title}
+
+```{r, create custom date inputer}
+
+# I wanted to create a year-month widget to avoid futzing with days.
+# I do not claim to understand this code - it was a total swipe from online!
+
+#https://stackoverflow.com/questions/31152960/display-only-months-in-daterangeinput-or-dateinput-for-a-shiny-app-r-programmin
+
+dateInput2 <- function(inputId, label, minview = "days", maxview = "decades", ...) {
+    d <- shiny::dateInput(inputId, label, ...)
+    d$children[[2L]]$attribs[["data-date-min-view-mode"]] <- minview
+    d$children[[2L]]$attribs[["data-date-max-view-mode"]] <- maxview
+    d
+}
+
+
+wellPanel(dateInput2(inputId = "custom_inputer",
+                     label="Select Year and Month",
+                   startview = "year",
+                   minview = "months",
+                   maxview = "decades",
+                   value = floor_date(Sys.Date(), "month"),
+                   min = "2020-08-01",
+                   max = floor_date(Sys.Date(), "month")))
+
+```
+
+```{r, make including school and tuition optional in monthly graph}
+
+wellPanel(radioButtons(inputId="keep_school",
+                       label = "Include School & Tuition?",
+                       choices = c("Yes", "No"),
+                       selected = "No"))
+
+
+```
+
+```{r, offer totals and percents option in monthly graph}
+
+wellPanel(selectInput(inputId = "type_graph",
+          label = "Select Type of Graph",
+          choices = c("Totals", "Percent"),
+          selected = "Totals"),
+          
+          textOutput(outputId = "no_rows"))
+
+```
+
+
+```{r, add error for 0 rows}
+
+output$no_rows <- renderText({
+
+   validate(need(nrow(Flux_school() %>%
+           filter(New_date == input$custom_inputer)) != 0,
+           "There is no data available for this month"))
+
+  })
+
+```
+
+## Month Graphs
+
+```{r, prep df for month graphs}
+
+# Convert chr date to date and amount to numeric
+
+Budget_df$Date <- ymd(Budget_df$Date)
+
+Budget_df$Amount <- as.numeric(Budget_df$Amount)
+
+#Fill in month-year sequence
+
+Fill_in <- Budget_df %>%
+  mutate("Month" = month((Date)),
+         "Year" = year((Date))) %>%
+  complete(Month = seq.int(from = 1, to = 12, by = 1),
+           nesting(Year),
+           fill = list(Amount = 0)) %>%
+  ungroup() %>%
+  mutate("Month_Name" = month(Month, label = TRUE, abbr = TRUE),
+         "New_date" = as_date(paste0(Month_Name,"-",Year,"-01"),
+                              format = "%b-%Y-%d"))
+
+# Create reactive summary dependent on School & Tuition
+
+Flux_school <- reactive({
+
+  if (input$keep_school == "Yes") {
+
+    # Keep school and tuition
+
+    df_1 <- Fill_in %>%
+      filter(!is.na(Expense.Category))
+
+  } 
+  
+  else {
+
+    # remove school and tuition
+
+    df_1 <- Fill_in %>%
+      filter(Expense.Category != 'School & Tuition' &
+               !is.na(Expense.Category))
+
+  }
+
+  # process filtered df
+
+  Month_expenses <- df_1 %>%
+    group_by(Year, Month_Name, New_date, Expense.Category) %>%
+    summarise(Total = sum(Amount)) %>%
+    mutate("Pct" = round((Total/sum(Total))*100,0)) %>%
+    ungroup()
+
+  Sum_month <- df_1 %>%
+    group_by(Year, Month_Name, New_date) %>%
+    summarise("Total" = sum(Amount)) %>%
+    mutate("Expense.Category" = "Entire Month",
+           "Pct" = NA) %>%
+    select(Year, Month_Name, New_date, Expense.Category, Total, Pct)
+
+  # Bind new entire month totals df
+  Prep_month <- rbind(Month_expenses, Sum_month) %>%
+    ungroup()
+
+  # Add ability to factor by type of sum
+  Month_final <- Prep_month %>%
+    mutate("Entire_Month" = if_else(Expense.Category == 'Entire Month',
+                                    "Yes", "No"))
+
+  return(Month_final)
+
+}
+)
+
+
+```
+
+### {.no-title}
+
+```{r, plot month summary}
+
+plotOutput(outputId = "month_plots")
+
+
+output$month_plots <- renderPlot({
+  
+  if (nrow(Flux_school() %>% 
+           filter(New_date == input$custom_inputer))== 0) {
+    
+    return(NULL) 
+    
+  } 
+  
+  else if (input$type_graph == "Totals"){
+    
+    # graph for totals
+    p <- Flux_school() %>%
+      filter(New_date == input$custom_inputer) %>%
+      ggplot(aes(x = reorder(Expense.Category,Total),
+                 y = Total,
+                 fill = Entire_Month)) +
+      geom_col() +
+      geom_text(aes(label = paste("$", format(Total, big.mark=","))),
+                size = 5, color = "#737373") +
+      scale_fill_manual(name = "Entire_Month",labels = c("No", "Yes"),
+                        values = c("#a4c7bf", "#C495D6"),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0.2, 0.2)) +
+      labs(title = paste(month(input$custom_inputer, label=TRUE),
+                         year(input$custom_inputer))) +
+      coord_flip() +
+      theme_classic() +
+      my_theme()
+
+    # graph for percent
+  } 
+  
+  else if (input$type_graph == "Percent") {
+
+    p <- Flux_school() %>%
+      filter(New_date == input$custom_inputer & !is.na(Pct)) %>%
+      ggplot(aes(x = reorder(Expense.Category,Pct),
+                 y = Pct)) +
+      geom_col(fill = "#a4c7bf") +
+      geom_text(aes(label = paste(Pct, "%")),
+                size = 5, color = "#737373") +
+      scale_y_continuous(expand = c(0.2, 0.2)) +
+      labs(title = paste(month(input$custom_inputer, label=TRUE),
+                         year(input$custom_inputer))) +
+      coord_flip() +
+      theme_classic() +
+      my_theme()
+
+  }
+
+  return(p)
+
+}
+)
+
+```
+
+# Yearly Summary
+
+## Total Inputs
+
+### {.no-title}
+
+```{r, make including school and tuition optional in yearly graph}
+
+wellPanel(radioButtons(inputId="keep_school_2",
+                       label = "Include School & Tuition?",
+                       choices = c("Yes", "No"),
+                       selected = "No"))
+
+
+```
+
+```{r, offer totals and percents option in yearly graph}
+
+wellPanel(selectInput(inputId = "type_graph_2",
+          label = "Select Type of Graph",
+          choices = c("Totals", "Percent"),
+          selected = "Totals"))
+
+```
+
+```{r, prep df for year graphs}
+
+# Create reactive summary dependent on School & Tuition
+
+Flux_school_2 <- reactive({
+
+  if (input$keep_school_2 == "Yes") {
+
+    # Keep school and tuition
+
+    df <- Budget_df 
+
+  } else {
+
+    # remove school and tuition
+
+    df <- Budget_df %>% 
+      filter(Expense.Category != "School & Tuition")
+
+  }
+
+  # process filtered df
+
+ Sum_expenses <- df %>%
+    group_by(Expense.Category) %>%
+    summarise(Total = sum(Amount)) %>%
+    mutate("Pct" = round((Total/sum(Total))*100,0)) %>%
+    ungroup()
+  
+  grand_total <- Sum_expenses %>% 
+    pull(Total) %>% 
+    sum()
+  
+  add_total <- tibble("Expense.Category" = "Total",
+                   "Total" = grand_total,
+                   "Pct" = NA)
+  
+  Final_df <- rbind(Sum_expenses,
+                    add_total)
+  
+  Final_df <- Final_df %>% 
+    mutate("Entire_yr" = if_else(Expense.Category == "Total",
+                            "Yes",
+                            "No")) %>% 
+    ungroup()
+  
+  return(Final_df)
+
+}
+)
+
+```
+
+## Total Graphs
+
+### {.no-title}
+
+```{r, plot year summary}
+
+plotOutput(outputId = "total_plots")
+
+# Will get an error if don't stop at 0 rows (no data)
+
+output$total_plots <- renderPlot({
+
+  if (nrow(Flux_school_2()) == 0) {
+
+    return(NULL) 
+
+  } 
+  else if (input$type_graph_2 == "Totals"){
+    # graph for totals
+    p_2 <- Flux_school_2() %>%
+      ggplot(aes(x = reorder(Expense.Category,Total),
+                 y = Total,
+                 fill = Entire_yr)) +
+      geom_col() +
+      geom_text(aes(label = paste("$", format(Total, big.mark = ","))),
+                size = 5, color = "#737373") +
+      scale_fill_manual(name = "Entire_yr",labels = c("No", "Yes"),
+                        values = c("#a4c7bf", "#C495D6"),
+                        guide = 'none') +
+      scale_y_continuous(expand = c(0.2, 0.2)) +
+      labs(title = "2020-2021") +
+      coord_flip() +
+      theme_classic() +
+      my_theme()
+
+    # graph for percent
+    
+  } 
+  else if (input$type_graph_2 == "Percent") {
+
+    p_2 <- Flux_school_2() %>%
+      filter(!is.na(Pct)) %>% 
+      ggplot(aes(x = reorder(Expense.Category,Pct),
+                 y = Pct)) +
+      geom_col(fill = "#a4c7bf") +
+      geom_text(aes(label = paste(Pct, "%")),
+                size = 5, color = "#737373") +
+      scale_y_continuous(expand = c(0.2, 0.2)) +
+      labs(title = "2020-2021") +
+      coord_flip() +
+      theme_classic() +
+      my_theme()
+
+  }
+
+  return(p_2)
+
+}
+)
+
+```
+
+# All Expenses
+
+## Download and Inputs 
+
+```{r, download button}
+
+wellPanel(downloadButton(outputId = "df_download",
+            label = "Download All Expenses"))
+
+Expenses <- Budget_df %>%
+  arrange(desc(Date), Expense.Category)
+
+  output$df_download <- downloadHandler(
+    filename = function(){
+      paste0("Expenses_", format(Sys.time(), "%B_%d_%Y %H_%M"),".csv")
+    },
+    content = function(file){
+      write_csv(Expenses, file)
+    })
+  
+
+```
+
+```{r, prep df for DT}
+
+my_DT <- Budget_df %>% 
+  mutate("Year" = 
+           factor(as.character(year(Date),
+                               levels = c("2020", "2021"))), 
+         "Month" = month(Date, label = TRUE)) %>% 
+  select(Year, Month, Expense.Category, Amount, Description) %>% 
+  arrange(desc(Year), desc(Month), Expense.Category)
+
+
+```
+
+```{r, create selection vectors for filtering DT}
+
+expense <- my_DT %>% 
+  pull(Expense.Category) %>% 
+  unique() %>% 
+  sort()
+
+my_year <- my_DT %>% 
+  pull(Year) %>% 
+  unique()
+
+my_month <- my_DT %>% 
+  pull(Month) %>% 
+  unique() %>% 
+  sort()
+ 
+```
+
+```{r, create conditional inputs for DT table}
+
+wellPanel(tags$h4("Total is at bottom of table"),
+          
+          materialSwitch(inputId="subtotals",
+                         label="Find Subtotals?",
+                         value=FALSE,
+                         status="success"),
+          conditionalPanel(
+            condition = "input.subtotals == '1'",
+            checkboxGroupInput(inputId = "year",
+                                            label = "Select Year(s)",
+                                            choices = my_year,
+                                            selected = NULL),
+            checkboxGroupInput(inputId = "expense",
+                                      label = "Select Expense(s)",
+                                      choices = expense,
+                                      selected = NULL),
+            checkboxGroupInput(inputId = "month",
+                                      label = "Select Month(s)",
+                                      choices = my_month,
+                                      selected = NULL)
+                 ),
+          #add error notification to make sure all sections have at least one check
+          textOutput(outputId = "null_problem")
+          )
+
+
+wellPanel(actionButton(inputId="reset",
+                        label = "Reset"))
+                 
+
+```
+
+```{r, address null problem error}
+
+output$null_problem <- renderText({
+    
+    if(is.null(input$year) & is.null(input$expense) & !is.null(input$month) |
+       is.null(input$year) & !is.null(input$expense) & is.null(input$month) |
+       !is.null(input$year) & is.null(input$expense) & is.null(input$month) |
+      is.null(input$year) & !is.null(input$expense) & !is.null(input$month) |
+        !is.null(input$year) & is.null(input$expense) & !is.null(input$month) |
+        !is.null(input$year) & !is.null(input$expense) & is.null(input$month)) 
+      {
+      print("Table will update when each section has at least one check")
+    }
+    
+  }
+  )
+
+```
+
+## Table 
+
+### {.no-title}
+
+```{r, filter DT}
+
+DT::dataTableOutput(outputId = "all_expenses")
+
+output$all_expenses <- DT::renderDataTable({
+    
+    # show base table if any section is missing an input (default)
+    
+    if ((is.null(input$year) | is.null(input$expense) | is.null(input$month))  
+    ) {
+      
+      my_DT %>% 
+        adorn_totals(where = "row")
+      
+    }
+      
+      else if ((!is.null(input$year) & !is.null(input$expense) & !is.null(input$month))){
+      
+      update_DT <- my_DT %>%
+        filter(Year %in% input$year,
+               Expense.Category %in% input$expense,
+               Month %in% input$month) %>%
+        adorn_totals(where = "row")
+      
+      return(update_DT)
+      
+      } 
+    
+  },
+  
+  options = list(
+    autoWidth = TRUE,
+    columnDefs = list(list(className = 'dt-center',
+                           targets = c(0,1)),
+                      list(searchable = TRUE, targets = c(1:4))
+    ),
+    pageLength = 100),
+  rownames = FALSE)
+  
+
+```
+
+```{r, reset to clear filters}
+
+observeEvent(input$reset, {
+    
+    
+    updateCheckboxGroupInput(session,
+                             inputId="year",
+                             selected = character(0))
+    
+    updateCheckboxGroupInput(session,
+                             inputId="expense",
+                             selected = character(0))
+    
+    updateCheckboxGroupInput(session,
+                             inputId="month",
+                             selected = character(0))
+    
+    updateMaterialSwitch(session,
+                         inputId="subtotals",
+                         value = FALSE)
+    
+  })
+  
+
+```
+
+
+
+
+
+
+
+
+
+
+
+

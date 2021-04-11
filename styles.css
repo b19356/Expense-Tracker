@@ -1,0 +1,200 @@
+/* css style sheet for Expense Tracker app */
+
+/*-- IMPORT FONT --*/
+
+@import url(https://fonts.googleapis.com/css2?family=PT+Sans&display=swap);
+
+body {
+    font-family: 'PT Sans', sans-serif;
+    color: rgba(44, 62, 80, 0.7);
+    background-color: white;
+}
+
+.navbar {
+    background-color: #2980b9 !important;
+}
+
+#navbar > ul.nav.navbar-nav.navbar-left {
+    background-color: #2980b9;
+}
+
+#navbar > ul.nav.navbar-nav.navbar-left > li > a:hover {
+    background-color: rgba(44, 62, 80, 0.2);
+}
+
+#navbar > ul.nav.navbar-nav.navbar-left > li.active > a {
+    background-color: rgba(44, 62, 80, 1);
+}
+
+.well {
+    background-color: rgba(44, 62, 80, 0.05);
+    border: 1px solid rgba(44, 62, 80, 0.1);
+    border-radius: 4px; 
+    }
+
+.help-block {
+    font-size: 1.0em;
+    color: rgba(44, 62, 80, 0.7);
+    text-align: center;
+}
+
+.shiny-output-error-validation {
+    font-family: 'PT Sans', sans-serif;
+    color: #d9534f !important;
+}
+
+#error, #null_problem {
+    font-family: 'PT Sans', sans-serif;
+    color: #d9534f;
+    font-size: 1.2em;
+}
+
+#submit_ok {
+    font-family: 'PT Sans', sans-serif;
+    color: #16a085;
+    font-size: 1.2em;
+}
+
+/* ACTION BUTTONS */
+
+.btn-default {
+    background-color: #2980b9;
+    color: white;
+    border: none;
+    font-size: 1.0em;
+    padding: 1.2em;
+    margin: 1em;
+    border-radius: 60px;
+    text-align: center;
+}
+
+.btn-default:hover {
+   background-color: rgba(44, 62, 80, 1);
+   font-size: 1.2em;
+}
+
+btn-default:active, .btn-default:focus {
+   background-color: rgba(44, 62, 80, 1) !important;
+   outline: none !important;
+   border: none !important;
+}
+
+/* Define flex containers for side by side action buttons */
+
+#section-section-3 > div.chart-stage.chart-stage-flex > div > div.well > div {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+}
+
+/* Side by side action buttons */
+
+#start_over, #save {
+    width: 80%;
+}
+
+/* block container action buttons */
+
+#df_download, #reset {
+    width: 100%;
+    margin: 0 auto 0 auto;
+}
+
+#section-section-1 > div.chart-stage.chart-stage-flex > div > div:nth-child(4) {
+    text-align:center;
+}
+#submit {
+    width: 50%;
+}
+
+/* Container for 'Save Expenses' action buttons */
+
+#section-section-3 {
+    width: 80%;
+    margin: 0 auto 0 auto;
+}
+
+/* TABLE - Save Expenses */
+
+#section-section-2 > div.chart-stage.chart-stage-flex.bootstrap-table {
+    width: 80%;
+    margin: 0 auto 0 auto;
+}
+
+/* SET CONTAINER WIDTHS */
+
+#section-month-inputs,
+#section-total-inputs,
+#section-download-and-inputs {
+    max-width: 25%;
+    margin-right: 5%;
+}
+
+#section-inputs {
+    max-width: 40%;
+    margin-right: 5%;
+    min-height: 600px;
+}
+
+#section-month-graphs,
+#section-total-graphs,
+#section-table
+{
+    min-width: 70%;
+}
+
+#section-section-1 {
+    min-width: 50%;
+}
+
+/* ALL EXPENSES */
+
+/* delete white space for Scroll to Bottom of Table to Find Total - 'All Expenses' */
+
+#section-download-and-inputs > div:nth-child(2) {
+    margin-bottom: 0;
+}
+
+h4 {
+    text-align: center;
+    color: rgba(44, 62, 80, 0.7);
+    font-weight: bold;
+}
+
+/* Modify success color on materialSwitch */
+
+#section-download-and-inputs > div:nth-child(7) > div.form-group.shiny-input-container > div > label {
+    background-color: #16a085 !important;
+}
+
+/* Make subwells within main filter wellPanel */
+
+#year, #expense, #month {
+    padding: 0.5em;
+    border: 1px solid #e3e3e3;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.05);
+    background-color: #f1f2f4;
+    border-color: #dddddd;
+}
+
+/* Create well-like panel for div for reset action button - 'All Expenses' */
+
+#section-download-and-inputs > div:nth-child(9) {
+    border: 1px solid #e3e3e3;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.05);
+    background-color: #f1f2f4;
+    border-color: #dddddd;
+}
+
+/* DT - can't figure out how to highlight Total row - I think I need JavaScript */
+
+#DataTables_Table_0_length, #DataTables_Table_0_filter, #DataTables_Table_0 > thead {
+    color: rgba(44, 62, 80, 1) !important;
+    font-weight: bold;
+}
+
+#DataTables_Table_0 > tbody {
+  color: rgba(44, 62, 80, 1);
+}
+
+
